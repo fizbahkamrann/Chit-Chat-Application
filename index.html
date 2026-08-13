@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Chit Chat App</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body class="theme-whatsapp">
+    <div id="chat-container">
+        <div class="header">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <div class="avatar" id="main-avatar">C</div>
+                <div>
+                    <h4 style="margin:0;">Chit Chat (<span id="count">0</span>)</h4>
+                    <span id="online-status">● Online</span>
+                </div>
+            </div>
+            <select id="theme-selector">
+                <option value="theme-whatsapp">WhatsApp Green</option>
+                <option value="theme-ocean">Ocean Blue</option>
+                <option value="theme-sunset">Sunset Pink</option>
+                <option value="theme-dark">Midnight Dark</option>
+            </select>
+        </div>
+        
+        <div class="name-bar">
+            <input type="text" id="username" placeholder="Your Name...">
+        </div>
+
+        <div id="messages"></div>
+        <div id="typing-status"></div>
+
+        <div class="emoji-bar">
+            <span>😊</span> <span>😂</span> <span>🔥</span> <span>👍</span> <span>❤️</span>
+        </div>
+
+        <div class="input-area">
+            <input type="file" id="imageInput" accept="image/*" style="display:none">
+            <button id="attachBtn" type="button">📎</button>
+            <input type="text" id="myMessage" placeholder="Type a message...">
+            <button id="sendbutton">➤</button>
+        </div>
+    </div>
+
+    <script>
+        $(document).ready(function() {
+            var socket = io();
+            var typingTimeout;
+
+            // Theme Switching Logic
+            $('#theme-selector').on('change', function() {
+                $('body').removeClass().addClass($(this).val());
+            });
+
+            // Avatar initial Logic
+            $('#username').on('input', function() {
+                let name = $(this).val();
+                if(name) $('#main-avatar').text(name.charAt(0).toUpperCase());
+            });
+
+            // Emoji Insertion
+            $('.emoji-bar span').on('click', function() {
+                $('#myMessage').val($('#myMessage').val() + $(this).text()).focus();
+            });
+
+            // Typing Indicator logic
+            $('#myMessage').on('input', function() {
+                socket.emit('typing', {user: $('#username').val() || "Someone"});
+            });
+
+            socket.on('is_typing', function(data) {
+                $('#typing-status').text(data.user + " is typing...");
+                clearTimeout(typingTimeout);
+                typingTimeout = setTimeout(() => { $('#typing-status').text(''); }, 2000);
+            });
+
+            // Status updates (Join/Leave)
+            socket.on('status_msg', function(data) {
+                $('#messages').append(`<div class="status-update">${data.msg}</div>`);
+                $("#messages").scrollTop($("#messages")[0].scrollHeight);
+            });
+
+            // IMAGE UPLOAD LOGIC
+            $('#attachBtn').on('click', function() { 
+                $('#imageInput').click(); 
+            });
+
+            $('#imageInput').on('change', function(e) {
+                let file = e.target.files[0];
+                if (file) {
+                    let reader = new FileReader();
+                    reader.onload = function(evt) {
+                        socket.emit('message', {
+                            user: $('#username').val() || "User", 
+                            msg: evt.target.result, 
+                            type: 'image'
+                        });
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+
+            // Text Send Logic
+            function send() {
+                let msg = $('#myMessage').val();
+                if (msg.trim() !== "") {
+                    socket.emit('message', {user: $('#username').val() || "User", msg: msg, type: 'text'});
+                    $('#myMessage').val('');
+                }
+            }
+            $('#sendbutton').on('click', send);
+            $('#myMessage').on('keypress', function(e) { if(e.which == 13) send(); });
+
+            // Receiving and Displaying Messages
+            socket.on('message', function(data) {
+                let side = (data.user === $('#username').val()) ? 'msg-right' : 'msg-left';
+                let content = (data.type === 'image') ? `<img src="${data.msg}" class="chat-img">` : `<p style="margin:5px 0;">${data.msg}</p>`;
+                
+                $('#messages').append(`
+                    <div class="message ${side}" id="${data.id}">
+                        <div class="bubble">
+                            <small style="color:#e91e63; font-weight:bold; display:block;">${data.user}</small>
+                            ${content}
+                            <small style="float:right; font-size:0.6rem; color:#888;">${data.time}</small>
+                            <button class="delete-btn" onclick="socket.emit('delete_message', {id:'${data.id}'})">×</button>
+                        </div>
+                    </div>`);
+                $("#messages").scrollTop($("#messages")[0].scrollHeight);
+            });
+
+            socket.on('user_count', function(d) { $('#count').text(d.count); });
+            socket.on('remove_message', function(d) { $(`#${d.id}`).remove(); });
+            
+            // History Loader
+            socket.on('load_history', function(h) {
+                $('#messages').empty();
+                h.forEach(m => {
+                    // Reuse the message display logic
+                    let side = (m.user === $('#username').val()) ? 'msg-right' : 'msg-left';
+                    let content = (m.type === 'image') ? `<img src="${m.msg}" class="chat-img">` : `<p style="margin:5px 0;">${m.msg}</p>`;
+                    $('#messages').append(`<div class="message ${side}" id="${m.id}"><div class="bubble"><small style="color:#e91e63; font-weight:bold; display:block;">${m.user}</small>${content}<small style="float:right; font-size:0.6rem; color:#888;">${m.time}</small><button class="delete-btn" onclick="socket.emit('delete_message', {id:'${m.id}'})">×</button></div></div>`);
+                });
+                $("#messages").scrollTop($("#messages")[0].scrollHeight);
+            });
+        });
+    </script>
+</body>
+</html>
